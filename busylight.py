@@ -34,8 +34,8 @@ class leftmanager(object):
         'work', 'dnd', 'busy': switch to the working states
     """
     leftstates = [
-        transitions.State(name='available', on_enter=['become_available'])
-        transitions.State(name='wfh', on_enter=['become_wfh'])
+        transitions.State(name='available', on_enter=['become_available']),
+        transitions.State(name='wfh', on_enter=['become_wfh']),
         transitions.State(name='busy', on_enter=['become_busy'])
     ]
     lefttransitions = [
