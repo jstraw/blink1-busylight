@@ -170,7 +170,7 @@ class busylight(cmd.Cmd):
         self.__set_light__(speed, color, self.left)
 
     def get_transitions(self):
-        return self.lstate.get_triggers(self.lstate.state) +
+        return self.lstate.get_triggers(self.lstate.state) + \
             self.rstate.get_triggers(self.rstate.state)
 
     def completedefault(self, text, line, begidx, endidx):
