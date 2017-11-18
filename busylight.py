@@ -154,6 +154,7 @@ class busylight(cmd.Cmd):
         self.lstate = leftmanager(self)
         self.rstate = rightmanager(self)
         super(cmd.Cmd, self).__init__()
+        self.cmdloop()
 
     def __set_light__(self, speed, color, led):
         try:
@@ -182,3 +183,6 @@ class busylight(cmd.Cmd):
                 getattr(self.lstate, line)()
             else:
                 getattr(self.rstate, line)()
+
+if __name__ == '__main__':
+    b = busylight()
