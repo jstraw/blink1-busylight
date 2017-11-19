@@ -1,10 +1,10 @@
 import cmd
 import readline
 import time
+import subprocess
+import sys
 
 import transitions
-
-import blink1.blink1 as blink1
 
 class busyrgb(object):
     """
@@ -58,6 +58,7 @@ class leftmanager(object):
         self.colors = busyrgb()
         self.machine = transitions.Machine(model=self, states=self.states,
             transitions=self.transitions, initial='available')
+        self.become_available()
 
     def become_available(self):
         """Callback to change to Available"""
@@ -86,7 +87,7 @@ class rightmanager(object):
     Transitions:
         'meet': go to a in_meeting
         'deploy': start a deploy
-        'out', 'ooo': out of the office
+        'ooo': out of the office
         'work': busy time
         'bored': Come talk
     """
@@ -94,16 +95,15 @@ class rightmanager(object):
         transitions.State(name='meeting', on_enter=['in_meeting']),
         transitions.State(name='deploy', on_enter=['doing_deploy']),
         transitions.State(name='work', on_enter=['doing_work']),
-        transitions.State(name='ooo', on_enter=['out']),
+        transitions.State(name='ooo', on_enter=['im_out']),
         transitions.State(name='interruptable', on_enter=['im_bored'])
     ]
     transitions = [
         ['meet', ['deploy', 'ooo', 'work', 'interruptable'], 'meeting'],
-        ['deploy', ['meet', 'ooo', 'work', 'interruptable'], 'deploy'],
-        ['out', ['meet', 'deploy', 'work', 'interruptable'], 'ooo'],
-        ['ooo', ['meet', 'deploy', 'work', 'interruptable'], 'ooo'],
-        ['work', ['meet', 'deploy', 'ooo', 'interruptable'], 'work'],
-        ['bored', ['meet', 'deploy', 'ooo', 'work'], 'interruptable']
+        ['deploy', ['meeting', 'ooo', 'work', 'interruptable'], 'deploy'],
+        ['ooo', ['meeting', 'deploy', 'work', 'interruptable'], 'ooo'],
+        ['work', ['meeting', 'deploy', 'ooo', 'interruptable'], 'work'],
+        ['bored', ['meeting', 'deploy', 'ooo', 'work'], 'interruptable']
     ]
     def __init__(self, light):
         """
@@ -115,21 +115,23 @@ class rightmanager(object):
         self.colors = busyrgb()
         self.machine = transitions.Machine(model=self, states=self.states,
             transitions=self.transitions, initial='interruptable')
+        self.im_bored()
 
     def in_meeting(self):
         self.light.right('fast', self.colors.meeting)
 
-    def doin_deploy(self):
+    def doing_deploy(self):
         self.light.right('fast', self.colors.deploy)
 
-    def doin_work(self):
+    def doing_work(self):
         self.light.right('fast', self.colors.deploy)
 
     def im_bored(self):
         self.light.right('fast', self.colors.interruptable)
 
-    def out(self):
+    def im_out(self):
         self.light.right('slow', self.colors.ooo)
+        self.lm.busy()
 
 class busylight(cmd.Cmd):
     """
@@ -140,16 +142,16 @@ class busylight(cmd.Cmd):
     colors = busyrgb()
     speeds = {'slow': 10000, 'fast': 1000}
     # cmd object keys
-    completekey = 'Tab'
+    completekey = "\t"
+    prompt = 'status > '
 
-    def __init__(self, left=1, right=2):
+    def __init__(self, cmd=False, left=1, right=2):
         """
         :param left int: Which led is on the left
         :param right int: Which led is on the right
         """
         self.left_led = left
         self.right_led = right
-        self.light = blink1.Blink1()
         self.__set_light__(self.speeds['fast'], (255,0,0))
         time.sleep(1)
         self.__set_light__(self.speeds['fast'], (0,255,0))
@@ -157,17 +159,19 @@ class busylight(cmd.Cmd):
         self.__set_light__(self.speeds['fast'], (0,0,255))
         self.lstate = leftmanager(self)
         self.rstate = rightmanager(self)
+        self.lstate.rm = self.rstate
+        self.rstate.lm = self.lstate
         super().__init__()
-        import pdb; pdb.set_trace()
-        self.cmdloop()
+        if cmd:
+            self.cmdloop()
 
-    def __set_light__(self, speed, color, led):
+    def __set_light__(self, speed, color, led=0):
         try:
             s = self.speeds[speed]
         except KeyError:
 
             s = speed
-        self.light.fade_to_rgb(s, color[0], color[1], color[2], led)
+        subprocess.check_call(['/usr/local/bin/blink1-tool', '--rgb', ','.join(str(x) for x in color), '-m', str(s), '-l', str(led)], stdout=subprocess.PIPE)
 
     def right(self, speed, color):
         self.__set_light__(speed, color, self.right_led)
@@ -175,11 +179,27 @@ class busylight(cmd.Cmd):
     def left(self, speed, color):
         self.__set_light__(speed, color, self.left_led)
 
-    def get_transitions(self):
-        return self.lstate.machine.get_triggers(self.lstate.state) + \
-            self.rstate.machine.get_triggers(self.rstate.state)
+    def postcmd(self, stop, line):
+        self.do_showtransitions(line)
 
-    def completedefault(self, text, line, begidx, endidx):
+    def do_off(self, line):
+        self.__set_light__(100, (0,0,0), 0)
+        print('\n')
+        sys.exit(0)
+    do_EOF=do_off
+    do_exit=do_off
+
+    def get_transitions(self):
+        s = self.lstate.machine.get_triggers(self.lstate.state) + \
+                self.rstate.machine.get_triggers(self.rstate.state)
+        return [x for x in s if not x.startswith('to')]
+
+    def completenames(self, text, *ignored):
+        x = super().completenames(text, ignored)
+        y = [i for i in self.get_transitions() if i.startswith(text)]
+        return x + y
+
+    def completetransitions(self, text, line, begidx, endidx):
         return [i for i in self.get_transitions() if i.startswith(text)]
 
     def default(self, line):
@@ -190,10 +210,16 @@ class busylight(cmd.Cmd):
                 getattr(self.rstate, line)()
 
     def do_showtransitions(self, line):
-        print(repr(self.get_transitions()))
+        print('Available Transitions')
+        print('Availablity (' + self.lstate.state + '): ' + ', '.join( \
+                x for x in self.lstate.machine.get_triggers(self.lstate.state) \
+                if not x.startswith('to')))
+        print('Tasking (' + self.rstate.state + '): ' + ', '.join( \
+                x for x in self.rstate.machine.get_triggers(self.rstate.state) \
+                if not x.startswith('to')))
 
     def do_state(self, line):
         print("Current States:\n Availablility: %s\n Tasking: %s" % (self.lstate.state, self.rstate.state))
 
 if __name__ == '__main__':
-    b = busylight()
+    b = busylight(cmd=True)
