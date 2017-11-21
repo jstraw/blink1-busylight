@@ -1,10 +1,12 @@
 import cmd
-import readline
+#import readline
 import time
 import subprocess
 import sys
+import random
 
 import transitions
+from utils import color as shcolor
 
 class busyrgb(object):
     """
@@ -43,9 +45,9 @@ class leftmanager(object):
         ['break', ['wfh', 'busy'], 'available'],
         ['available', ['wfh', 'busy'], 'available'],
         ['wfh', ['available', 'busy'], 'wfh'],
-        ['work', 'available', 'busy'],
-        ['dnd', 'available', 'busy'],
-        ['busy', 'available', 'busy']
+        ['work', ['wfh', 'available'], 'busy'],
+        ['dnd', ['wfh', 'available'], 'busy'],
+        ['busy', ['wfh', 'available'], 'busy']
     ]
 
     def __init__(self, light):
@@ -171,7 +173,7 @@ class busylight(cmd.Cmd):
         except KeyError:
 
             s = speed
-        subprocess.check_call(['/usr/local/bin/blink1-tool', '--rgb', ','.join(str(x) for x in color), '-m', str(s), '-l', str(led)], stdout=subprocess.PIPE)
+        subprocess.check_call(['blink1-tool', '--rgb', ','.join(str(x) for x in color), '-m', str(s), '-l', str(led)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def right(self, speed, color):
         self.__set_light__(speed, color, self.right_led)
@@ -211,7 +213,7 @@ class busylight(cmd.Cmd):
 
     def do_showtransitions(self, line):
         print('Available Transitions')
-        print('Availablity (' + self.lstate.state + '): ' + ', '.join( \
+        print('Availablity (' + self.lstate.state + '): ' + ', '.join(
                 x for x in self.lstate.machine.get_triggers(self.lstate.state) \
                 if not x.startswith('to')))
         print('Tasking (' + self.rstate.state + '): ' + ', '.join( \
@@ -220,6 +222,20 @@ class busylight(cmd.Cmd):
 
     def do_state(self, line):
         print("Current States:\n Availablility: %s\n Tasking: %s" % (self.lstate.state, self.rstate.state))
+
+    def do_party(self, line):
+        try:
+            t = int(line) # t is seconds to party
+        except:
+            raise
+        elapsed = 0 # milliseconds partied
+        while elapsed < t*1000:
+            color = tuple(random.randrange(0,255) for x in range(3))
+            wait = random.uniform(0,500)
+            self.__set_light__(wait, color)
+            time.sleep(wait/1000)
+            elapsed += wait
+
 
 if __name__ == '__main__':
     b = busylight(cmd=True)
